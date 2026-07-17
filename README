@@ -1,0 +1,10 @@
+# ESP32 Conway's Game of Life
+A C++ implementation of Conway's Game of Life on the ESP32-WROOM-32 with user inputs and a 16x16 LED array.
+
+## Features
+* 16x16 grid
+* Iteration speed
+* Clear
+* Play/Pause
+* Joystick navigation
+* Drawing
