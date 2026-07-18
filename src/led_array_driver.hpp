@@ -3,7 +3,7 @@
 class LedDriver {
     private:
     
-    bool** cell_states;
+    bool (*_display_buffer)[16];
 
     void send_bit( boolean bit ) {
         digitalWrite(14, bit);
@@ -25,31 +25,27 @@ class LedDriver {
         }
     }
 
+    public:
+
+    LedDriver(bool (*&display_buffer)[16]) {
+        _display_buffer = display_buffer;
+    }
+
+
     void refresh() {
         for (int i = 0; i < 16; i++) {
             select_row(i);
             // Refresh can be called whilst cell_states is briefly a nullptr
-            if (cell_states == nullptr) {
+            if (_display_buffer == nullptr) {
                 return;
             }
-            bool* row_cell_states = cell_states[i];
+            bool* row_cell_states = _display_buffer[i];
             for (int j = 0; j < 16; j++) {
                 bool cell_state = row_cell_states[j];
                 send_bit(cell_state);
             }
         }
     }
-
-    public:
-
-    void update_cell_states( bool** new_cell_states ) {
-        // Deallocate old cell state array
-        if (cell_states != nullptr) {
-            delete[] cell_states;
-            cell_states = nullptr; // Ensures cell_states isn't a hanging pointer
-        }
-        **cell_states = new_cell_states;
-    };
 
     /**
      * Keep static as FreeRTOS is written in C and expects static C++
