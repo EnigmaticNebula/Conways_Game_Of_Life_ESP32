@@ -33,6 +33,7 @@ public:
 
             unsigned int current_time = millis();
             if (current_time - last_blink >= 2000) {
+                last_blink = current_time;
                 if (cursor_lit) {
                     cursor_lit = false;
                 } else {
@@ -48,7 +49,7 @@ public:
         }
 
     void move_up() {
-        if (current_row < 16) {
+        if (current_row < 15) {
             prev_row = current_row;
             current_row++;
             cursor_change = true;
@@ -64,7 +65,7 @@ public:
     }
 
     void move_right() {
-        if (current_column < 16) {
+        if (current_column < 15) {
             prev_column = current_column;
             current_column++;
             cursor_change = true;

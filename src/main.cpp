@@ -6,6 +6,18 @@
 
 // put function declarations here:
 int get_iteration_speed();
+static void matrix_refresh(void* pvParameters);
+static void simulation_loop(void* pvParameters);
+void clear_buffers();
+void reset_buffer(bool (*buffer)[16]);
+void IRAM_ATTR play_pause_isr();
+void IRAM_ATTR clear_isr();
+void IRAM_ATTR iterate_isr();
+void IRAM_ATTR nav_up();
+void IRAM_ATTR nav_right();
+void IRAM_ATTR nav_down();
+void IRAM_ATTR nav_left();
+void IRAM_ATTR nav_act();
 
 bool sim_buffer[16][16];
 bool display_buffer[16][16];
@@ -33,9 +45,9 @@ volatile unsigned int last_nav_action_press = 0;
 const unsigned int DEBOUNCE_DELAY = 100;
 
 const int ITERATION_SPEED_PIN = 34;
-const int ITERATE_BUTTON_PIN = 32;
+const int ITERATE_BUTTON_PIN = 4;
 const int CLEAR_BUTTON_PIN = 33;
-const int PLAY_PAUSE_BUTTON_PIN = 4;
+const int PLAY_PAUSE_BUTTON_PIN = 32;
 const int NAV_UP_PIN = 23;
 const int NAV_LEFT_PIN = 16;
 const int NAV_RIGHT_PIN = 21;
@@ -43,10 +55,12 @@ const int NAV_DOWN_PIN = 18;
 const int NAV_ACTION_PIN = 22;
 const int ROTARY_ENCODER_A_PIN = 17;
 const int ROTARY_ENCODER_B_PIN = 19;
-const int REGISTER_SERIAL_PIN = 14;
-const int REGISTER_RCLK_PIN = 27;
-const int REGISTER_SRCLK_PIN = 26;
-const int REGISTER_SRCLR_PIN = 25;
+const int HIGH_SIDE_SERIAL_PIN = 15;
+const int HIGH_SIDE_RCLK_PIN = 13;
+const int HIGH_SIDE_SRCLK_PIN = 14;
+const int LOW_SIDE_SERIAL_PIN = 25;
+const int LOW_SIDE_CLK_PIN = 26;
+const int LOW_SIDE_LATCH_PIN = 27;
 
 Simulation simulation;
 LedDriver led_driver{display_buffer_ptr};
@@ -61,21 +75,21 @@ void setup() {
   pinMode(CLEAR_BUTTON_PIN, INPUT_PULLUP); // Clear
   pinMode(PLAY_PAUSE_BUTTON_PIN, INPUT_PULLUP); // Play/Pause
 
-  pinMode(NAV_UP_PIN, INPUT); // Nav up
-  pinMode(NAV_LEFT_PIN, INPUT); // Nav left
-  pinMode(NAV_RIGHT_PIN, INPUT); // Nav right
-  pinMode(NAV_ACTION_PIN, INPUT); // Nav action
-  pinMode(NAV_DOWN_PIN, INPUT); // Nav down
-  pinMode(ROTARY_ENCODER_A_PIN, INPUT); // Rotary encoder channel A
-  pinMode(ROTARY_ENCODER_B_PIN, INPUT); // Rotary encoder channel B
+  pinMode(NAV_UP_PIN, INPUT_PULLUP); // Nav up
+  pinMode(NAV_LEFT_PIN, INPUT_PULLUP); // Nav left
+  pinMode(NAV_RIGHT_PIN, INPUT_PULLUP); // Nav right
+  pinMode(NAV_ACTION_PIN, INPUT_PULLUP); // Nav action
+  pinMode(NAV_DOWN_PIN, INPUT_PULLUP); // Nav down
+  pinMode(ROTARY_ENCODER_A_PIN, INPUT_PULLUP); // Rotary encoder channel A
+  pinMode(ROTARY_ENCODER_B_PIN, INPUT_PULLUP); // Rotary encoder channel B
 
-  pinMode(REGISTER_SERIAL_PIN, OUTPUT); // Shift register serial
-  pinMode(REGISTER_RCLK_PIN, OUTPUT); // RCLK
-  pinMode(REGISTER_SRCLK_PIN, OUTPUT); // SRCLK
-  pinMode(REGISTER_SRCLR_PIN, OUTPUT); // SRCLR
-  digitalWrite(REGISTER_SRCLR_PIN, HIGH); //SRCLR is active low, so it is set to high to ensure registers aren't cleared constantly
+  pinMode(HIGH_SIDE_SERIAL_PIN, OUTPUT); // Shift register serial
+  pinMode(HIGH_SIDE_RCLK_PIN, OUTPUT); // RCLK
+  pinMode(HIGH_SIDE_SRCLK_PIN, OUTPUT); // SRCLK
 
   buffer_mutex = xSemaphoreCreateMutex();
+
+  Serial.begin(9600);
 
   // ------------- LED DRIVER TASK -------------
   xTaskCreatePinnedToCore(
@@ -111,7 +125,6 @@ int get_iteration_speed() {
 
 static void matrix_refresh(void* pvParameters) {
   for (;;) {
-
     // Ensure that buffers are not currently being used by the simulation loop
     if (xSemaphoreTake(buffer_mutex, (TickType_t) 10) == pdTRUE) {
       nav_driver.refresh_cursor_position();
@@ -148,8 +161,6 @@ static void simulation_loop(void* pvParameters) {
 
     if (cleared) {
       clear_buffers();
-      digitalWrite(REGISTER_SRCLR_PIN, LOW);
-      digitalWrite(REGISTER_SRCLR_PIN, HIGH);
       cleared = false;
     }
 
@@ -162,6 +173,7 @@ static void simulation_loop(void* pvParameters) {
       bool (*temp)[16] = display_buffer_ptr;
       display_buffer_ptr = sim_buffer_ptr;
       sim_buffer_ptr = temp;
+      xSemaphoreGive(buffer_mutex);
     }
 
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -178,7 +190,7 @@ void clear_buffers() {
 
 void reset_buffer(bool (*buffer)[16]) {
   for (int i = 0; i < 16; i++) {
-    for (int j = 0; i < 16; j++) {
+    for (int j = 0; j < 16; j++) {
       buffer[i][j] = false;
     }
   }
@@ -200,6 +212,7 @@ void IRAM_ATTR clear_isr() {
   unsigned int current_time = millis();
   if (current_time - last_cleared_press >= DEBOUNCE_DELAY) {
     cleared = true;
+    last_cleared_press = current_time;
   }
 }
 
@@ -207,6 +220,7 @@ void IRAM_ATTR iterate_isr() {
   unsigned int current_time = millis();
   if (current_time - last_iterate_press >= DEBOUNCE_DELAY) {
     iterate = true;
+    last_iterate_press = current_time;
   }
 }
 
@@ -214,6 +228,7 @@ void IRAM_ATTR nav_up() {
   unsigned int current_time = millis();
   if (current_time - last_nav_up_press >= DEBOUNCE_DELAY) {
     nav_driver.move_up();
+    last_nav_up_press = current_time;
   }
 }
 
@@ -221,6 +236,7 @@ void IRAM_ATTR nav_right() {
   unsigned int current_time = millis();
   if (current_time - last_nav_right_press >= DEBOUNCE_DELAY) {
     nav_driver.move_right();
+    last_nav_right_press = current_time;
   }
 }
 
@@ -228,6 +244,7 @@ void IRAM_ATTR nav_down() {
   unsigned int current_time = millis();
   if (current_time - last_nav_down_press >= DEBOUNCE_DELAY) {
     nav_driver.move_down();
+    last_nav_down_press = current_time;
   }
 }
 
@@ -235,6 +252,7 @@ void IRAM_ATTR nav_left() {
   unsigned int current_time = millis();
   if (current_time - last_nav_left_press >= DEBOUNCE_DELAY) {
     nav_driver.move_left();
+    last_nav_left_press = current_time;
   }
 }
 
@@ -242,5 +260,6 @@ void IRAM_ATTR nav_act() {
   unsigned int current_time = millis();
   if (current_time - last_nav_action_press >= DEBOUNCE_DELAY) {
     nav_driver.centre_select();
+    last_nav_action_press = current_time;
   }
 }
